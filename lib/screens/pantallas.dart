@@ -18,10 +18,9 @@ class _PantallasState extends State<Pantallas> {
   static const String baseUrl = 'http://192.168.0.20:5000';
   static const String api = '$baseUrl/api';
 
-  // Datos dinámicos (solo lectura)
-  String siguienteTurno = "---";   // Se llenará con el primer turno en atención
-  int numeroVentanilla = 0;        // Por ahora se queda dummy; luego hacemos endpoint específico
-
+  // Datos dinámicos
+  String siguienteTurno = "---";
+  int numeroVentanilla = 0;
   List<String> turnosEnEspera = [];
   List<String> turnosEnAtencion = [];
 
@@ -31,69 +30,106 @@ class _PantallasState extends State<Pantallas> {
   static const Color verdeInstitucional = Color(0xFF1B2D26);
   static const Color textoOro = Color(0xFFD6C4A8);
 
+  // CONTROL DE ANIMACIÓN DE 15 SEGUNDOS
+  bool animacionActiva = false;
+  Timer? animacionTimer;
+
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
 
-    // Cargar datos al iniciar
     _cargarTurnos();
+    _cargarTurnoActual();
 
-    // Actualización automática cada 5 segundos
+    // Actualización automática
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
       _cargarTurnos();
+      _cargarTurnoActual();
     });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    animacionTimer?.cancel();
     super.dispose();
   }
 
   // ==============================
-  // API: TURNOS EN ESPERA + ATENCIÓN
+  // API — ÚLTIMO TURNO LLAMADO
+  // ==============================
+  Future<void> _cargarTurnoActual() async {
+    final url = Uri.parse("$api/tickets/ultimo-turno");
+
+    try {
+      final resp = await http.get(url);
+
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
+
+        final nuevoTurno = data["turno"] ?? "---";
+
+        // Detectar si cambió el turno
+        if (nuevoTurno != siguienteTurno) {
+          activarAnimacionCambio();
+        }
+
+        setState(() {
+          siguienteTurno = nuevoTurno;
+          numeroVentanilla = data["ventanilla_id"] ?? 0;
+        });
+      } else if (resp.statusCode == 204) {
+        setState(() {
+          siguienteTurno = "---";
+          numeroVentanilla = 0;
+        });
+      }
+    } catch (e) {
+      print("⚠ Error en _cargarTurnoActual(): $e");
+    }
+  }
+
+  // ACTIVAR ANIMACIÓN POR 15 SEGUNDOS
+  void activarAnimacionCambio() {
+    setState(() => animacionActiva = true);
+
+    animacionTimer?.cancel();
+    animacionTimer = Timer(const Duration(seconds: 15), () {
+      setState(() => animacionActiva = false);
+    });
+  }
+
+  // ==============================
+  // API — TURNOS EN ESPERA + ATENCIÓN
   // ==============================
   Future<void> _cargarTurnos() async {
     try {
-      final urlEspera   = Uri.parse("$api/tickets/turnos-en-espera");
+      final urlEspera = Uri.parse("$api/tickets/turnos-en-espera");
       final urlAtencion = Uri.parse("$api/tickets/turnos-en-atencion");
 
-      // 1) Turnos en espera
       final respEspera = await http.get(urlEspera);
+
       if (respEspera.statusCode == 200) {
         final data = jsonDecode(respEspera.body);
-        final listaEspera =
-            List<String>.from(data["turnos_en_espera"] ?? []);
+        final listaEspera = List<String>.from(data["turnos_en_espera"] ?? []);
 
-        // 2) Turnos en atención
         final respAtencion = await http.get(urlAtencion);
+
         if (respAtencion.statusCode == 200) {
           final data2 = jsonDecode(respAtencion.body);
           final listaAtencion =
               List<String>.from(data2["turnos_en_atencion"] ?? []);
 
           setState(() {
-            turnosEnEspera   = listaEspera;
+            turnosEnEspera = listaEspera;
             turnosEnAtencion = listaAtencion;
-
-            // El "Siguiente Turno" del panel central será:
-            // el primer turno en atención (si hay), si no, "---"
-            if (turnosEnAtencion.isNotEmpty) {
-              siguienteTurno = turnosEnAtencion.first;
-            } else {
-              siguienteTurno = "---";
-            }
           });
-        } else {
-          print("❌ Error al obtener turnos en atención: ${respAtencion.body}");
         }
-      } else {
-        print("❌ Error al obtener turnos en espera: ${respEspera.body}");
       }
     } catch (e) {
-      print("⚠ Error en API _cargarTurnos: $e");
+      print("⚠ Error en _cargarTurnos: $e");
     }
   }
 
@@ -121,38 +157,64 @@ class _PantallasState extends State<Pantallas> {
         padding: const EdgeInsets.all(14),
         child: Row(
           children: [
-            // =======================
-            // Columna izquierda: ESPERA
-            // =======================
+            // ----------------------------------------
+            // COLUMNA IZQUIERDA: TURNOS EN ESPERA
+            // ----------------------------------------
             Expanded(
               child: _buildCard(
                 titulo: "Turnos en espera",
                 colorHeader: guindaClaro,
-                child: _buildLista(turnosEnEspera),
+                child: CarreteAnimado(items: turnosEnEspera),
               ),
             ),
 
             const SizedBox(width: 14),
 
-            // =======================
-            // Columna central
-            // =======================
+            // ----------------------------------------
+            // COLUMNA CENTRAL
+            // ----------------------------------------
             Expanded(
               child: Column(
                 children: [
-                  // Panel superior: Siguiente Turno
+                  // Panel superior — siguiente turno
                   Expanded(
                     flex: 3,
                     child: _buildCard(
                       titulo: "Siguiente Turno",
                       colorHeader: guinda,
                       child: Center(
-                        child: Text(
-                          siguienteTurno,
-                          style: const TextStyle(
-                            fontSize: 80,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 700),
+                          transitionBuilder: (widget, anim) {
+                            if (animacionActiva) {
+                              return ScaleTransition(scale: anim, child: widget);
+                            }
+                            return FadeTransition(opacity: anim, child: widget);
+                          },
+                          child: Container(
+                            key: ValueKey(siguienteTurno),
+                            padding: animacionActiva
+                                ? const EdgeInsets.all(20)
+                                : EdgeInsets.zero,
+                            decoration: animacionActiva
+                                ? BoxDecoration(
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.amber.withOpacity(0.8),
+                                        blurRadius: 40,
+                                        spreadRadius: 10,
+                                      ),
+                                    ],
+                                  )
+                                : null,
+                            child: Text(
+                              siguienteTurno,
+                              style: const TextStyle(
+                                fontSize: 80,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
+                              ),
+                            ),
                           ),
                         ),
                       ),
@@ -161,7 +223,7 @@ class _PantallasState extends State<Pantallas> {
 
                   const SizedBox(height: 14),
 
-                  // Panel inferior: Ventanilla (por ahora dummy)
+                  // Panel inferior — ventanilla asignada
                   Expanded(
                     flex: 2,
                     child: Container(
@@ -183,7 +245,6 @@ class _PantallasState extends State<Pantallas> {
                           numeroVentanilla == 0
                               ? "Ventanilla"
                               : "Ventanilla $numeroVentanilla",
-                          textAlign: TextAlign.center,
                           style: const TextStyle(
                             fontSize: 60,
                             fontWeight: FontWeight.bold,
@@ -199,14 +260,14 @@ class _PantallasState extends State<Pantallas> {
 
             const SizedBox(width: 14),
 
-            // =======================
-            // Columna derecha: ATENCIÓN
-            // =======================
+            // ----------------------------------------
+            // COLUMNA DERECHA: TURNOS EN ATENCIÓN
+            // ----------------------------------------
             Expanded(
               child: _buildCard(
                 titulo: "Turnos en atención",
                 colorHeader: verdeInstitucional,
-                child: _buildLista(turnosEnAtencion),
+                child: CarreteAnimado(items: turnosEnAtencion),
               ),
             ),
           ],
@@ -266,34 +327,83 @@ class _PantallasState extends State<Pantallas> {
       ),
     );
   }
+}
 
-  Widget _buildLista(List<String> items) {
-    if (items.isEmpty) {
-      return const Center(
-        child: Text(
-          "Sin turnos",
-          style: TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey,
-          ),
-        ),
-      );
+// =========================================================
+// CARRUSEL ANIMADO PROFESIONAL PARA TURNOS
+// =========================================================
+class CarreteAnimado extends StatefulWidget {
+  final List<String> items;
+  final Duration velocidad;
+
+  const CarreteAnimado({
+    super.key,
+    required this.items,
+    this.velocidad = const Duration(seconds: 3),
+  });
+
+  @override
+  _CarreteAnimadoState createState() => _CarreteAnimadoState();
+}
+
+class _CarreteAnimadoState extends State<CarreteAnimado> {
+  final ScrollController _controller = ScrollController();
+  late Timer _timer;
+  double _posicion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _timer = Timer.periodic(widget.velocidad, (timer) {
+      if (_controller.hasClients && widget.items.isNotEmpty) {
+        _posicion += 50;
+        _controller.animateTo(
+          _posicion,
+          duration: const Duration(seconds: 2),
+          curve: Curves.easeInOut,
+        );
+
+        if (_controller.position.pixels >=
+            _controller.position.maxScrollExtent - 50) {
+          _posicion = 0;
+          _controller.jumpTo(0);
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.items.isEmpty) {
+      return const Center(child: Text("Sin turnos"));
     }
 
-    return ListView.separated(
-      itemCount: items.length,
-      separatorBuilder: (_, __) => Divider(color: Colors.grey[400]),
-      itemBuilder: (_, index) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Text(
-          items[index],
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
+    return ListView.builder(
+      controller: _controller,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      itemCount: widget.items.length,
+      itemBuilder: (context, index) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: Text(
+              widget.items[index],
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
