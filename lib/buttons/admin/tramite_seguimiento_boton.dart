@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:isste/constants/colors.dart';
 import 'package:isste/services/api_service.dart';
 
-/// Widget para listar tickets en estado "seguimiento".
-/// Cárgalo en el contenedor derecho cuando el usuario elija "Seguimiento".
+/// =============================================================
+///  PANEL: Tickets en Seguimiento (Administración)
+/// =============================================================
 class TramiteSeguimientoBoton extends StatefulWidget {
   const TramiteSeguimientoBoton({super.key});
 
@@ -15,6 +16,7 @@ class TramiteSeguimientoBoton extends StatefulWidget {
 
 class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
   final TextEditingController _buscarCtrl = TextEditingController();
+
   bool _loading = true;
   List<dynamic> _items = [];
   String? _error;
@@ -22,39 +24,51 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
   @override
   void initState() {
     super.initState();
-    _cargar();
+    _cargarPendientes();
   }
 
-  Future<void> _cargar() async {
+  // =============================================================
+  // 🔥 Cargar seguimientos pendientes
+  // =============================================================
+  Future<void> _cargarPendientes() async {
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
-      final q = _buscarCtrl.text.trim();
-      final url = ApiService.ticketsActivos; // Usar la constante apropiada
-      final uri = Uri.parse(url).replace(
-        queryParameters: q.isEmpty ? null : {'q': q}
-      );
+      final query = _buscarCtrl.text.trim();
 
-      final respuesta = await ApiService.getJson(uri.toString());
+      // URL del backend
+      String url = "${ApiService.baseUrl}/api/seguimientos/pendientes";
+
+      // Si hay búsqueda
+      if (query.isNotEmpty) url += "?q=$query";
+
+      final respuesta = await ApiService.getJson(url);
 
       if (respuesta.statusCode == 200) {
         final data = jsonDecode(respuesta.body);
+
+        // 🔥 FIX IMPORTANTE:
+        // El backend puede devolver "pendientes" o "seguimientos".
+        // Aseguramos compatibilidad flexible.
         setState(() {
-          _items = (data['tickets'] ?? []) as List<dynamic>;
+          _items = data["pendientes"] ??
+                   data["seguimientos"] ??
+                   [];
         });
+
       } else {
         setState(() {
           _items = [];
-          _error = 'No se pudo obtener la lista (${respuesta.statusCode}).';
+          _error = "No se pudo obtener la lista (${respuesta.statusCode}).";
         });
       }
     } catch (e) {
       setState(() {
         _items = [];
-        _error = 'Error de conexión: $e';
+        _error = "Error de conexión: $e";
       });
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -67,6 +81,9 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
     super.dispose();
   }
 
+  // =============================================================
+  // UI
+  // =============================================================
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -75,7 +92,7 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
         const SizedBox(height: 12),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _cargar,
+            onRefresh: _cargarPendientes,
             child: _buildBody(),
           ),
         ),
@@ -83,6 +100,9 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
     );
   }
 
+  // =============================================================
+  // Encabezado con búsqueda
+  // =============================================================
   Widget _buildHeaderBar() {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -106,20 +126,23 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
         children: [
           const Icon(Icons.history, color: AppColors.guinda7421),
           const SizedBox(width: 8),
+
           const Expanded(
             child: Text(
-              'Tickets en Seguimiento',
+              "Tickets en Seguimiento",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
           ),
+
+          // 🔍 Campo de búsqueda
           SizedBox(
             width: 260,
             child: TextField(
               controller: _buscarCtrl,
-              onSubmitted: (_) => _cargar(),
+              onSubmitted: (_) => _cargarPendientes(),
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Buscar por turno o ciudadano…',
+                hintText: "Buscar por turno o ciudadano…",
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -127,17 +150,22 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
               ),
             ),
           ),
+
           const SizedBox(width: 8),
+
           FilledButton.icon(
-            onPressed: _cargar,
+            onPressed: _cargarPendientes,
             icon: const Icon(Icons.refresh),
-            label: const Text('Actualizar'),
+            label: const Text("Actualizar"),
           ),
         ],
       ),
     );
   }
 
+  // =============================================================
+  // Cuerpo principal
+  // =============================================================
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -154,7 +182,7 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
     }
 
     if (_items.isEmpty) {
-      return const Center(child: Text('Sin tickets en seguimiento.'));
+      return const Center(child: Text("Sin tickets en seguimiento."));
     }
 
     return ListView.separated(
@@ -162,11 +190,12 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
       itemCount: _items.length,
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
-        final t = _items[i] as Map<String, dynamic>;
-        final turno = (t['turno'] ?? '').toString();
-        final tramite = (t['tramite'] ?? '').toString();
-        final ciudadano = (t['ciudadano'] ?? '').toString();
-        final fecha = _formateaFecha(t['fecha_creacion']);
+        final s = _items[i];
+
+        final turno = s["turno"] ?? "-";
+        final tramite = s["tramite"] ?? "-";
+        final ciudadano = s["ciudadano"] ?? "-";
+        final fecha = _formateaFecha(s["fecha"]);
 
         return Container(
           padding: const EdgeInsets.all(12),
@@ -186,24 +215,24 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
             ],
           ),
           child: ListTile(
-            contentPadding: EdgeInsets.zero,
             title: Text(
-              '$turno — $tramite',
+              "$turno — $tramite",
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            subtitle: Text('Ciudadano: $ciudadano\nDesde: $fecha'),
+            subtitle: Text("Ciudadano: $ciudadano\nDesde: $fecha"),
             isThreeLine: true,
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {
-              _mostrarDetalle(t);
-            },
+            onTap: () => _mostrarDetalle(s),
           ),
         );
       },
     );
   }
 
-  void _mostrarDetalle(Map<String, dynamic> t) {
+  // =============================================================
+  // Detalle del seguimiento
+  // =============================================================
+  void _mostrarDetalle(Map<String, dynamic> s) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -222,7 +251,7 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
                   const Icon(Icons.info_outline, color: AppColors.guinda7421),
                   const SizedBox(width: 8),
                   const Text(
-                    'Detalle de seguimiento',
+                    "Detalle de seguimiento",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                   ),
                   const Spacer(),
@@ -233,14 +262,19 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
                 ],
               ),
               const SizedBox(height: 8),
-              _dato('Turno', (t['turno'] ?? '').toString()),
-              _dato('Trámite', (t['tramite'] ?? '').toString()),
-              _dato('Ciudadano', (t['ciudadano'] ?? '').toString()),
-              _dato('Fecha creación', _formateaFecha(t['fecha_creacion'])),
-              const SizedBox(height: 12),
+
+              _dato("Turno", s["turno"] ?? "-"),
+              _dato("Trámite", s["tramite"] ?? "-"),
+              _dato("Ciudadano", s["ciudadano"] ?? "-"),
+              _dato("Fecha creación", _formateaFecha(s["fecha"])),
+
+              const SizedBox(height: 14),
               const Text(
-                'Próximamente: reactivar/archivar desde aquí.',
-                style: TextStyle(fontStyle: FontStyle.italic),
+                "Próximamente: Reactivar / Archivar",
+                style: TextStyle(
+                  fontStyle: FontStyle.italic,
+                  fontSize: 13,
+                ),
               ),
             ],
           ),
@@ -267,16 +301,22 @@ class _TramiteSeguimientoBotonState extends State<TramiteSeguimientoBoton> {
     );
   }
 
+  // =============================================================
+  // Formateo de fecha seguro
+  // =============================================================
   String _formateaFecha(dynamic iso) {
     try {
-      if (iso == null) return '-';
+      if (iso == null) return "-";
+
       final dt = DateTime.tryParse(iso.toString());
       if (dt == null) return iso.toString();
-      return '${_dos(dt.day)}/${_dos(dt.month)}/${dt.year} ${_dos(dt.hour)}:${_dos(dt.minute)}';
+
+      return "${_dos(dt.day)}/${_dos(dt.month)}/${dt.year} "
+          "${_dos(dt.hour)}:${_dos(dt.minute)}";
     } catch (_) {
       return iso.toString();
     }
   }
 
-  String _dos(int n) => n.toString().padLeft(2, '0');
+  String _dos(int n) => n.toString().padLeft(2, "0");
 }

@@ -6,10 +6,13 @@ class BotonSeguimiento extends StatelessWidget {
   final String tramite;
   final String ciudadano;
 
-  /// Opcional pero recomendado, si lo tienes.
+  /// ID del ticket actual (recomendado, así no dependemos solo del turno)
   final int? ticketId;
 
-  /// Se ejecuta cuando el seguimiento se crea con éxito (útil para recargar el siguiente ticket).
+  /// ID del usuario ventanilla que genera el seguimiento
+  final int usuarioId;
+
+  /// Se ejecuta cuando el seguimiento se crea con éxito (para recargar / tomar siguiente)
   final VoidCallback? onSuccess;
 
   const BotonSeguimiento({
@@ -17,6 +20,7 @@ class BotonSeguimiento extends StatelessWidget {
     required this.turno,
     required this.tramite,
     required this.ciudadano,
+    required this.usuarioId,
     this.ticketId,
     this.onSuccess,
   });
@@ -35,6 +39,7 @@ class BotonSeguimiento extends StatelessWidget {
               turno: turno,
               tramite: tramite,
               ciudadano: ciudadano,
+              usuarioId: usuarioId,
               ticketId: ticketId,
               onSuccess: onSuccess,
             ),
@@ -56,24 +61,29 @@ class BotonSeguimiento extends StatelessWidget {
   }
 }
 
-/// Diálogo con el formulario y la lógica del POST, todo en este archivo.
+/// ===============================
+///  DIALOG + LÓGICA DEL SEGUIMIENTO
+/// ===============================
 class _SeguimientoFormDialog extends StatefulWidget {
   final String turno;
   final String tramite;
   final String ciudadano;
   final int? ticketId;
+  final int usuarioId;
   final VoidCallback? onSuccess;
 
   const _SeguimientoFormDialog({
     required this.turno,
     required this.tramite,
     required this.ciudadano,
+    required this.usuarioId,
     this.ticketId,
     this.onSuccess,
   });
 
   @override
-  State<_SeguimientoFormDialog> createState() => _SeguimientoFormDialogState();
+  State<_SeguimientoFormDialog> createState() =>
+      _SeguimientoFormDialogState();
 }
 
 class _SeguimientoFormDialogState extends State<_SeguimientoFormDialog> {
@@ -100,26 +110,35 @@ class _SeguimientoFormDialogState extends State<_SeguimientoFormDialog> {
     });
 
     try {
+      // Payload hacia el backend
       final payload = <String, dynamic>{
         'motivo': motivo,
+        'usuario_id': widget.usuarioId,
         if (widget.ticketId != null) 'ticket_id': widget.ticketId,
         if (widget.ticketId == null) 'turno': widget.turno,
       };
 
-      // NOTA: Necesitarías agregar esta constante a ApiService
-      final url = '${ApiService.baseUrl}/ventanilla/generar-seguimiento';
+      // 🔥 Ruta propuesta para seguimiento:
+      // POST /api/seguimiento/crear
+      final url = '${ApiService.baseUrl}/api/seguimientos/crear';
+
       final respuesta = await ApiService.postJson(url, payload);
 
       if (respuesta.statusCode == 200) {
-        // Muestra confirmación y refresca la pantalla de ventanilla
+        // Mensaje visual
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          const SnackBar(content: Text('Seguimiento generado exitosamente')),
+          const SnackBar(
+            content: Text('Seguimiento generado exitosamente'),
+          ),
         );
 
-        widget.onSuccess?.call(); // 👈 pedir siguiente ticket
+        // Callback para que ventanilla pueda tomar siguiente ticket si así lo quieres
+        widget.onSuccess?.call();
+
         if (mounted) Navigator.of(context).pop(true);
       } else {
-        setState(() => _error = 'No se pudo generar el seguimiento (${respuesta.statusCode}).');
+        setState(() => _error =
+            'No se pudo generar el seguimiento (${respuesta.statusCode}).');
       }
     } catch (e) {
       setState(() => _error = 'Error de conexión: $e');
@@ -131,7 +150,8 @@ class _SeguimientoFormDialogState extends State<_SeguimientoFormDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Text('Generar seguimiento'),
       content: SingleChildScrollView(
         child: Column(
@@ -152,7 +172,10 @@ class _SeguimientoFormDialogState extends State<_SeguimientoFormDialog> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.red),
+              ),
             ],
           ],
         ),

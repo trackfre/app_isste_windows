@@ -4,12 +4,14 @@ import 'package:isste/services/api_service.dart';
 
 class BotonCambioVentanilla extends StatelessWidget {
   final int ticketId;
-  final int tramiteId; // ✅ nuevo parámetro
+  final int tramiteId;
+  final void Function(Map<String, dynamic>)? onTicketActualizado;
 
   const BotonCambioVentanilla({
     super.key,
     required this.ticketId,
-    required this.tramiteId, // ✅ en el constructor
+    required this.tramiteId,
+    this.onTicketActualizado,
   });
 
   @override
@@ -21,7 +23,7 @@ class BotonCambioVentanilla extends StatelessWidget {
         onPressed: () => _mostrarDialogoCambio(context),
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFFB9975B),
-          foregroundColor: const Color.fromARGB(255, 238, 235, 235),
+          foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(30),
           ),
@@ -36,7 +38,10 @@ class BotonCambioVentanilla extends StatelessWidget {
 
   void _mostrarDialogoCambio(BuildContext context) {
     final TextEditingController motivoController = TextEditingController();
-    int? tramiteSeleccionado = tramiteId; // ✅ precarga con el trámite actual
+
+    // 🔥 FIX: evitar valores inválidos como 0
+    int? tramiteSeleccionado = (tramiteId == 0) ? null : tramiteId;
+
     List<dynamic> tramitesDisponibles = [];
     bool cargado = false;
 
@@ -45,19 +50,30 @@ class BotonCambioVentanilla extends StatelessWidget {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            
+            // =============================================================
+            // 🔥 CARGAR TRÁMITES DEL BACKEND
+            // =============================================================
             Future<void> cargarTramites() async {
               try {
-                final respuesta = await ApiService.getJson(ApiService.tramitesVigentes);
+                final respuesta =
+                    await ApiService.getJson(ApiService.tramitesVigentes);
+
                 if (respuesta.statusCode == 200) {
-                  setState(() {
-                    tramitesDisponibles = jsonDecode(respuesta.body);
-                    cargado = true;
-                  });
-                } else {
-                  throw Exception('No se pudieron cargar los trámites');
+                  final body = jsonDecode(respuesta.body);
+
+                  if (body is List) {
+                    tramitesDisponibles = body;
+                  } else if (body is Map && body.containsKey("tramites")) {
+                    tramitesDisponibles = body["tramites"];
+                  } else {
+                    throw Exception("Formato inesperado de respuesta");
+                  }
+
+                  setState(() => cargado = true);
                 }
               } catch (e) {
-                print('❌ Error cargando trámites: $e');
+                print("❌ Error cargando trámites: $e");
               }
             }
 
@@ -69,29 +85,39 @@ class BotonCambioVentanilla extends StatelessWidget {
                 'Reasignar a nuevo trámite',
                 style: TextStyle(color: Colors.white),
               ),
+
+              // =============================================================
+              // 🔥 CONTENIDO DEL DIÁLOGO
+              // =============================================================
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // =========================================================
+                  // 🔥 DROPDOWN DE TRÁMITES
+                  // =========================================================
                   DropdownButtonFormField<int>(
-                    value: tramiteSeleccionado,
-                    decoration: InputDecoration(
+                    value: tramitesDisponibles.any((t) => t["id"] == tramiteSeleccionado)
+                        ? tramiteSeleccionado
+                        : null,
+                    decoration: const InputDecoration(
                       labelText: 'Seleccione el trámite correcto',
-                      border: const OutlineInputBorder(),
-                      labelStyle: const TextStyle(color: Colors.white),
-                      enabledBorder: const OutlineInputBorder(
+                      labelStyle: TextStyle(color: Colors.white),
+                      border: OutlineInputBorder(),
+                      enabledBorder: OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.white70),
                       ),
-                      focusedBorder: const OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.white),
-                      ),
                       filled: true,
-                      fillColor: const Color(0xFF254C47),
+                      fillColor: Color(0xFF254C47),
                     ),
-                    style: const TextStyle(color: Color(0xFFB9975B)),
-                    items: tramitesDisponibles.map<DropdownMenuItem<int>>((t) {
+                    dropdownColor: const Color(0xFF254C47),
+                    items: tramitesDisponibles
+                        .map<DropdownMenuItem<int>>((t) {
                       return DropdownMenuItem(
-                        value: t['id'],
-                        child: Text(t['nombre']),
+                        value: t["id"],
+                        child: Text(
+                          t["nombre"],
+                          style: const TextStyle(color: Colors.white),
+                        ),
                       );
                     }).toList(),
                     onChanged: (value) {
@@ -100,74 +126,93 @@ class BotonCambioVentanilla extends StatelessWidget {
                       });
                     },
                   ),
+
                   const SizedBox(height: 15),
+
+                  // =========================================================
+                  // 🔥 CAMPO MOTIVO
+                  // =========================================================
                   TextField(
                     controller: motivoController,
                     maxLines: 3,
-                    decoration: InputDecoration(
-                      labelText: 'Motivo del cambio',
-                      border: const OutlineInputBorder(),
-                      labelStyle: const TextStyle(color: Colors.white),
-                      enabledBorder: const OutlineInputBorder(
+                    decoration: const InputDecoration(
+                      labelText: "Motivo del cambio",
+                      labelStyle: TextStyle(color: Colors.white),
+                      border: OutlineInputBorder(),
+                      enabledBorder: OutlineInputBorder(
                         borderSide: BorderSide(color: Colors.white70),
                       ),
-                      focusedBorder: const OutlineInputBorder(
-                        borderSide: BorderSide(color: Color(0xFFB9975B)),
-                      ),
                       filled: true,
-                      fillColor: const Color(0xFF254C47),
+                      fillColor: Color(0xFF254C47),
                     ),
-                    style: const TextStyle(color: Color(0xFFB9975B)),
+                    style: const TextStyle(color: Colors.white),
                   ),
                 ],
               ),
+
+              // =============================================================
+              // 🔥 BOTONES
+              // =============================================================
               actions: [
                 TextButton(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white,
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    "Cancelar",
+                    style: TextStyle(color: Colors.white),
                   ),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancelar'),
                 ),
+
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFB9975B),
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () async {
-                    if (tramiteSeleccionado != null &&
-                        motivoController.text.isNotEmpty) {
-                      final respuesta = await ApiService.putJson(
-                        '${ApiService.baseUrl}/api/tickets/reasignar-por-tramite',
-                        {
-                          'ticket_id': ticketId,
-                          'tramite_id': tramiteSeleccionado,
-                        },
-                      );
 
-                      if (respuesta.statusCode == 200) {
-                        Navigator.of(context).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('✅ Ticket reasignado exitosamente.'),
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('❌ No se pudo reasignar el ticket.'),
-                          ),
-                        );
-                      }
-                    } else {
+                    if (tramiteSeleccionado == null ||
+                        motivoController.text.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text('Selecciona el trámite y escribe el motivo.'),
                         ),
                       );
+                      return;
+                    }
+
+                    final respuesta = await ApiService.putJson(
+                      "${ApiService.baseUrl}/api/tickets/reasignar-por-tramite",
+                      {
+                        "ticket_id": ticketId,
+                        "tramite_id": tramiteSeleccionado,
+                        "motivo": motivoController.text,
+                      },
+                    );
+
+                    if (respuesta.statusCode == 200) {
+                      final data = jsonDecode(respuesta.body);
+
+                      // si existe ticket actualizado, enviarlo al callback del padre
+                      if (onTicketActualizado != null &&
+                          data.containsKey("ticket")) {
+                        onTicketActualizado!(data["ticket"]);
+                      }
+
+                      Navigator.pop(context);
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("✔ Ticket reasignado."),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("❌ No se pudo reasignar el ticket."),
+                        ),
+                      );
                     }
                   },
-                  child: const Text('Aceptar'),
+                  child: const Text("Aceptar"),
                 ),
               ],
             );
